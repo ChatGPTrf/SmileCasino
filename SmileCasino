@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Крипто-рулетка</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .wheel-container {
+            position: relative;
+            width: 300px;
+            height: 300px;
+            margin: 20px auto;
+        }
+        .wheel {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: conic-gradient(
+                red 0deg 45deg,
+                black 45deg 90deg,
+                red 90deg 135deg,
+                black 135deg 180deg,
+                red 180deg 225deg,
+                black 225deg 270deg,
+                red 270deg 315deg,
+                black 315deg 360deg
+            );
+            position: relative;
+            transition: transform 3s cubic-bezier(0.17, 0.67, 0.12, 0.99);
+            transform: rotate(0deg);
+        }
+        .pointer {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 15px solid transparent;
+            border-right: 15px solid transparent;
+            border-top: 30px solid gold;
+            z-index: 10;
+        }
+        .controls {
+            margin-top: 30px;
+            text-align: center;
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .bet-section {
+            margin: 20px 0;
+        }
+        .payment-method {
+            margin: 15px 0;
+        }
+        .result {
+            font-weight: bold;
+            margin: 15px 0;
+            font-size: 18px;
+        }
+        .hidden {
+            display: none;
+        }
+        #cryptoAddress {
+            font-size: 12px;
+            word-break: break-all;
+            background: #eee;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .qr-code {
+            margin: 10px auto;
+            width: 150px;
+            height: 150px;
+            background: #fff;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Крипто-рулетка</h1>
+    
+    <div class="wheel-container">
+        <div class="pointer"></div>
+        <div class="wheel" id="wheel"></div>
+    </div>
+    
+    <div class="result" id="result"></div>
+    
+    <div class="bet-section">
+        <label for="betAmount">Сумма ставки (USD):</label>
+        <input type="number" id="betAmount" min="1" value="10">
+        
+        <div class="payment-method">
+            <label>Метод оплаты:</label><br>
+            <input type="radio" id="cardPayment" name="payment" value="card" checked>
+            <label for="cardPayment">Банковская карта</label><br>
+            
+            <input type="radio" id="cryptoPayment" name="payment" value="crypto">
+            <label for="cryptoPayment">Криптовалюта (UQC)</label>
+        </div>
+        
+        <div id="cardDetails" class="payment-details">
+            <p>Используется карта: 2200 1513 2419 6869</p>
+            <label for="cardExpiry">Срок действия:</label>
+            <input type="text" id="cardExpiry" placeholder="MM/YY">
+            
+            <label for="cardCvc">CVC:</label>
+            <input type="text" id="cardCvc" placeholder="123">
+        </div>
+        
+        <div id="cryptoDetails" class="payment-details hidden">
+            <p>Оплатите через Telegram бота:</p>
+            <button id="startCryptoBot">Открыть криптобота</button>
+            <p>Или отправьте UQC на адрес:</p>
+            <div id="cryptoAddress">UQCKIv2St4__heTxdSFjKTxzKD3bLHlSYbbCZ6skTAktA93w</div>
+            <div class="qr-code" id="qrCode"></div>
+            <button id="confirmCrypto">Подтвердить платеж</button>
+        </div>
+    </div>
+    
+    <div class="controls">
+        <label>Выберите ставку:</label><br>
+        <button id="betRed">Красное (x2)</button>
+        <button id="betBlack">Черное (x2)</button>
+        <button id="betGreen">Зеленое (x14)</button>
+    </div>
+    
+    <script>
+        const wheel = document.getElementById('wheel');
+        const resultDiv = document.getElementById('result');
+        const betAmountInput = document.getElementById('betAmount');
+        const cardPayment = document.getElementById('cardPayment');
+        const cryptoPayment = document.getElementById('cryptoPayment');
+        const cardDetails = document.getElementById('cardDetails');
+        const cryptoDetails = document.getElementById('cryptoDetails');
+        const confirmCryptoBtn = document.getElementById('confirmCrypto');
+        const startCryptoBotBtn = document.getElementById('startCryptoBot');
+        const betRedBtn = document.getElementById('betRed');
+        const betBlackBtn = document.getElementById('betBlack');
+        const betGreenBtn = document.getElementById('betGreen');
+        const qrCodeDiv = document.getElementById('qrCode');
+        
+        // Конфигурация
+        const BOT_TOKEN = '371020:AA7y2QGxhjdilCCJ7C6hhzEDsEPgAT6J4nH';
+        const CRYPTO_ADDRESS = 'UQCKIv2St4__heTxdSFjKTxzKD3bLHlSYbbCZ6skTAktA93w';
+        const USER_CARD = '2200 1513 2419 6869';
+        
+        let currentBet = null;
+        let spinning = false;
+        let paymentConfirmed = false;
+        
+        // Генерация QR-кода
+        function generateQR(text) {
+            qrCodeDiv.innerHTML = '';
+            const qr = new QRCode(qrCodeDiv, {
+                text: text,
+                width: 150,
+                height: 150,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+        }
+        
+        // Инициализация QR-кода
+        generateQR(`ton:${CRYPTO_ADDRESS}`);
+        
+        // Переключение между методами оплаты
+        cardPayment.addEventListener('change', () => {
+            cardDetails.classList.remove('hidden');
+            cryptoDetails.classList.add('hidden');
+            paymentConfirmed = false;
+        });
+        
+        cryptoPayment.addEventListener('change', () => {
+            cardDetails.classList.add('hidden');
+            cryptoDetails.classList.remove('hidden');
+            paymentConfirmed = false;
+        });
+        
+        // Открытие криптобота
+        startCryptoBotBtn.addEventListener('click', () => {
+            const betAmount = betAmountInput.value;
+            const botUrl = `https://t.me/your_crypto_bot?start=bet_${betAmount}`;
+            window.open(botUrl, '_blank');
+            
+            // В реальном приложении здесь нужно настроить вебхуки для проверки платежа
+            alert(`Откройте бота и следуйте инструкциям для оплаты ${betAmount} USD в UQC`);
+        });
+        
+        // Подтверждение криптоплатежа
+        confirmCryptoBtn.addEventListener('click', async () => {
+            const betAmount = betAmountInput.value;
+            
+            // Здесь должна быть проверка платежа через API бота
+            // Это упрощенная имитация
+            try {
+                // В реальном приложении используйте fetch к вашему бэкенду
+                // const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/...`);
+                
+                // Имитация проверки платежа
+                const paymentSuccess = confirm(`Подтверждаете, что отправили ${betAmount} USD в UQC на адрес ${CRYPTO_ADDRESS}?`);
+                
+                if (paymentSuccess) {
+                    paymentConfirmed = true;
+                    alert('Платеж подтвержден. Теперь можете сделать ставку.');
+                } else {
+                    alert('Платеж не подтвержден. Пожалуйста, совершите перевод.');
+                }
+            } catch (error) {
+                console.error('Ошибка проверки платежа:', error);
+                alert('Ошибка при проверке платежа');
+            }
+        });
+        
+        // Обработчики ставок
+        betRedBtn.addEventListener('click', () => placeBet('red'));
+        betBlackBtn.addEventListener('click', () => placeBet('black'));
+        betGreenBtn.addEventListener('click', () => placeBet('green'));
+        
+        function placeBet(color) {
+            if (spinning) return;
+            
+            const betAmount = parseInt(betAmountInput.value);
+            if (isNaN(betAmount) || betAmount <= 0) {
+                alert('Введите корректную сумму ставки');
+                return;
+            }
+            
+            // Проверка оплаты
+            const paymentMethod = document.querySelector('input[name="payment"]:checked').value;
+            
+            if (paymentMethod === 'card') {
+                const cardExpiry = document.getElementById('cardExpiry').value;
+                const cardCvc = document.getElementById('cardCvc').value;
+                
+                if (!cardExpiry || !cardCvc) {
+                    alert('Заполните данные карты');
+                    return;
+                }
+                
+                // Имитация платежа по карте
+                alert(`Списано ${betAmount} USD с карты ${USER_CARD}`);
+            } else if (paymentMethod === 'crypto' && !paymentConfirmed) {
+                alert('Подтвердите криптоплатеж перед ставкой');
+                return;
+            }
+            
+            currentBet = { color, amount: betAmount };
+            spinWheel();
+        }
+        
+        function spinWheel() {
+            spinning = true;
+            paymentConfirmed = false;
+            resultDiv.textContent = '';
+            
+            // Случайный угол вращения (минимум 2 полных оборота)
+            const spins = 2 + Math.random(); // 2-3 полных оборота
+            const degrees = spins * 360 + Math.floor(Math.random() * 360);
+            
+            wheel.style.transform = `rotate(${-degrees}deg)`;
+            
+            setTimeout(() => {
+                const actualDegrees = degrees % 360;
+                determineResult(actualDegrees);
+                spinning = false;
+            }, 3000);
+        }
+        
+        function determineResult(degrees) {
+            let winningColor;
+            
+            // Определяем выигрышный сектор
+            if (degrees >= 0 && degrees < 45) winningColor = 'red';
+            else if (degrees >= 45 && degrees < 90) winningColor = 'black';
+            else if (degrees >= 90 && degrees < 135) winningColor = 'red';
+            else if (degrees >= 135 && degrees < 180) winningColor = 'black';
+            else if (degrees >= 180 && degrees < 225) winningColor = 'red';
+            else if (degrees >= 225 && degrees < 270) winningColor = 'black';
+            else if (degrees >= 270 && degrees < 315) winningColor = 'red';
+            else winningColor = 'black';
+            
+            // Зеленый сектор (0) - очень маленький шанс
+            if (Math.random() < 0.05) { // 5% шанс на зеленое
+                winningColor = 'green';
+            }
+            
+            // Проверяем ставку
+            let winAmount = 0;
+            if (currentBet.color === winningColor) {
+                if (winningColor === 'green') {
+                    winAmount = currentBet.amount * 14;
+                } else {
+                    winAmount = currentBet.amount * 2;
+                }
+            }
+            
+            // Показываем результат
+            if (winAmount > 0) {
+                resultDiv.textContent = `Поздравляем! Вы выиграли ${winAmount} USD!`;
+                resultDiv.style.color = 'green';
+                
+                // Если оплата была криптовалютой - выплачиваем на кошелек
+                const paymentMethod = document.querySelector('input[name="payment"]:checked').value;
+                if (paymentMethod === 'crypto') {
+                    setTimeout(() => {
+                        alert(`Выигрыш ${winAmount} USD в UQC отправлен на ваш кошелек ${CRYPTO_ADDRESS}`);
+                    }, 1000);
+                }
+            } else {
+                resultDiv.textContent = `Вы проиграли. Выпало ${winningColor === 'green' ? '0 (зеленое)' : winningColor}`;
+                resultDiv.style.color = 'red';
+            }
+            
+            currentBet = null;
+        }
+    </script>
+    <!-- Подключаем библиотеку для QR-кода -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+</body>
+</html>
